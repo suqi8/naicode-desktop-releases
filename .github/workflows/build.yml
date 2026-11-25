@@ -1,4 +1,4 @@
-# 从私有仓库拉源码，打全部客户端，发到本仓库的公开 Releases。
+# 打全部客户端，发到本仓库的 Releases。
 # 只能手动触发（Actions → 打包全部客户端 → Run workflow）；不响应 push / pull_request，fork 的 PR 拿不到 secrets。
 name: 打包全部客户端
 
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: 私有仓库的分支、标签或提交
+        description: 要打包的分支、标签或提交
         required: true
         default: wip-snapshot
       tag:
@@ -26,7 +26,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SOURCE_REPO: suqi8/naicode-desktop
   NODE_VERSION: "24.14.0"
   PNPM_VERSION: "10.33.2"
   ZCODE_ENV: production
@@ -41,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ env.SOURCE_REPO }}
+          repository: ${{ secrets.SOURCE_REPO }}
           ref: ${{ inputs.ref }}
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
           fetch-depth: 1
@@ -79,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ env.SOURCE_REPO }}
+          repository: ${{ secrets.SOURCE_REPO }}
           ref: ${{ needs.source.outputs.sha }}
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
           fetch-depth: 1
@@ -89,7 +88,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      # 私有仓库约定不提交本地重新生成的 pnpm-lock.yaml，入库的 lockfile 可能落后于 workspace，因此不用 frozen。
+      # 入库的 pnpm-lock.yaml 可能落后于 workspace，因此不用 frozen。
       - name: 安装依赖
         run: pnpm install --no-frozen-lockfile
       # Linux 目标是 AppImage、deb、rpm、pacman：rpm 需要 rpmbuild，pacman 需要 bsdtar。
@@ -126,7 +125,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ env.SOURCE_REPO }}
+          repository: ${{ secrets.SOURCE_REPO }}
           ref: ${{ needs.source.outputs.sha }}
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
           fetch-depth: 1
@@ -161,7 +160,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: ${{ env.SOURCE_REPO }}
+          repository: ${{ secrets.SOURCE_REPO }}
           ref: ${{ needs.source.outputs.sha }}
           token: ${{ secrets.SOURCE_REPO_TOKEN }}
           fetch-depth: 1
@@ -221,12 +220,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.source.outputs.tag }}
-          SHA: ${{ needs.source.outputs.sha }}
-          REF: ${{ inputs.ref }}
         run: |
           cat > notes.md <<EOF
-          源码提交：\`${SHA:0:12}\`（私有仓库分支 / 标签：\`${REF}\`）
-
           | 客户端 | 文件 |
           | --- | --- |
           | Windows 桌面版 | \`*-win-x64.exe\`、\`*-win-arm64.exe\` |
