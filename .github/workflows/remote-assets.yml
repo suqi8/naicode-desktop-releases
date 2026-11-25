@@ -1,0 +1,68 @@
+# 打远程工作区（SSH / WSL / 容器）用的 NaiCode Server 资源，产物作为 artifact 下载后放到资源服务器。
+# 必须在 Linux 上打：Windows 打出的 tar 包没有可执行权限，远端执行 bin/zcode 会 Permission denied。
+# 只能手动触发；ref 要和对应桌面版安装包是同一个提交。
+name: 打包远程工作区资源
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 要打包的分支、标签或提交（与对应桌面版同一提交）
+        required: true
+        default: wip-snapshot
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24.14.0"
+  PNPM_VERSION: "10.33.2"
+  ZCODE_ENV: production
+
+jobs:
+  remote-assets:
+    name: 远程工作区资源（四平台）
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.SOURCE_REPO }}
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SOURCE_REPO_TOKEN }}
+          fetch-depth: 1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # 入库的 pnpm-lock.yaml 可能落后于 workspace，因此不用 frozen。
+      - name: 安装依赖
+        run: pnpm install --no-frozen-lockfile
+      - name: 构建 workspace 包
+        run: pnpm -r --filter "./packages/*" --filter "!@zcode/desktop" build
+      - name: 打包远程资源
+        run: pnpm prepare:remote-assets
+      - name: 检查可执行权限
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir=$(ls -d packages/desktop/mock-cdn/releases/*/)
+          ls -la "$dir"
+          for target in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
+            listing=$(tar -tvzf "$dir/zcode-server-$target.tar.gz")
+            for entry in "zcode-server-$target/bin/zcode" "zcode-server-$target/runtime/node"; do
+              if ! grep -qE "^-rwx.* $entry\$" <<<"$listing"; then
+                echo "::error::$target 包里 $entry 没有可执行权限"
+                exit 1
+              fi
+            done
+            echo "$target ok"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-assets
+          path: packages/desktop/mock-cdn/releases/
+          if-no-files-found: error
+          compression-level: 0
