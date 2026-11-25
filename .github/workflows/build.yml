@@ -95,13 +95,30 @@ jobs:
       - name: 安装 Linux 打包工具
         if: matrix.os == 'linux'
         run: sudo apt-get update && sudo apt-get install -y rpm libarchive-tools
+      # deb/rpm/pacman 的包元数据必须带 homepage，否则 electron-builder 报 "Please specify project homepage"。
+      # 只改本次构建的工作副本，用本发布仓库的地址作为主页。
+      - name: 写入 Linux 包主页
+        if: matrix.os == 'linux'
+        working-directory: packages/desktop
+        env:
+          HOMEPAGE: ${{ github.server_url }}/${{ github.repository }}
+        run: npm pkg set "homepage=$HOMEPAGE"
       - name: 打包
         shell: bash
         env:
           # 未配置 Apple 签名：不自动找证书，产出未签名、未公证的包。
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           FAST_FLAG: ${{ inputs.fast && '--fast' || '' }}
-        run: pnpm bundle:desktop -- --os ${{ matrix.os }} --arch ${{ matrix.arch }} $FAST_FLAG
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            # Git Bash 的 GNU tar 会把 "D:/..." 里的 "D:" 当成远程主机名而解包失败；
+            # 只把 tar 换成 Windows 自带的 bsdtar（与本机打包一致），其余工具不动。
+            shim="$(cygpath -u "$RUNNER_TEMP")/win-tar"
+            mkdir -p "$shim"
+            cp /c/Windows/System32/tar.exe "$shim/tar.exe"
+            export PATH="$shim:$PATH"
+          fi
+          pnpm bundle:desktop -- --os ${{ matrix.os }} --arch ${{ matrix.arch }} $FAST_FLAG
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.os }}-${{ matrix.arch }}
